@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import get_args
 
 import typer
+from langgraph.types import Command
 
 from ai_orchestrator.contracts import Specialist, TaskRequest
 from ai_orchestrator.deps import default_deps
@@ -15,17 +16,22 @@ from ai_orchestrator.persistence.checkpoints import open_checkpointer
 
 app = typer.Typer(help="Equipe autônoma de agentes de engenharia (LangGraph + Claude Code).", no_args_is_help=True)
 
-EXIT_CODES = {"done": 0, "blocked": 2}
+EXIT_CODES = {"done": 0, "blocked": 2, "awaiting_approval": 3}
 
 SpecialistChoice = Enum("SpecialistChoice", {name: name for name in get_args(Specialist)}, type=str)
 
 
-def _execute(deps, task_id: str, graph_input: dict | None) -> None:
+def _execute(deps, task_id: str, graph_input: dict | Command | None, *, awaiting_approval: bool = False) -> None:
     config = {"configurable": {"thread_id": task_id}, "recursion_limit": 100}
     with open_checkpointer(deps.settings.workspaces_root) as saver:
         graph = build_graph(deps).compile(checkpointer=saver)
+        if awaiting_approval and "approval" not in graph.get_state(config).next:
+            typer.echo(f"{task_id} não está aguardando aprovação.", err=True)
+            raise typer.Exit(1)
         for update in graph.stream(graph_input, config, stream_mode="updates"):
             for node, delta in update.items():
+                if node == "__interrupt__":
+                    continue  # the pause itself; request_approval already logged it
                 for event in (delta or {}).get("events", []):
                     typer.echo(f"[{node}] {event['message']}")
         final = graph.get_state(config).values
@@ -33,6 +39,10 @@ def _execute(deps, task_id: str, graph_input: dict | None) -> None:
     status = final.get("status", "?")
     typer.echo("")
     typer.echo(f"Resultado: {status}" + (f" — {final.get('blocked_reason')}" if status == "blocked" else ""))
+    if status == "awaiting_approval":
+        files = ", ".join((final.get("validation") or {}).get("needs_confirmation", []))
+        typer.echo(f"Exige confirmação: {files}")
+        typer.echo(f"Revise o diff e rode `aio approve {task_id}` (commita) ou `aio reject {task_id}`.")
     typer.echo(f"Tentativas: {final.get('attempts', 0)} · Custo: US$ {final.get('cost_usd', 0.0):.2f}")
     if final.get("workspace"):
         typer.echo(f"Branch: {final['workspace']['branch']}")
@@ -69,3 +79,21 @@ def resume(
 ) -> None:
     """Retoma uma tarefa do último checkpoint (ex.: depois de fechar o terminal)."""
     _execute(default_deps(config), task_id, None)
+
+
+@app.command()
+def approve(
+    task_id: str = typer.Argument(..., help="ID da tarefa aguardando aprovação."),
+    config: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Aprova uma alteração em caminho que exige confirmação (ex.: CI/CD) e faz o commit no branch da tarefa."""
+    _execute(default_deps(config), task_id, Command(resume={"approved": True}), awaiting_approval=True)
+
+
+@app.command()
+def reject(
+    task_id: str = typer.Argument(..., help="ID da tarefa aguardando aprovação."),
+    config: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Rejeita a alteração: a tarefa termina bloqueada, sem commit; o worktree fica para inspeção."""
+    _execute(default_deps(config), task_id, Command(resume={"approved": False}), awaiting_approval=True)

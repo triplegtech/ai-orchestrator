@@ -80,7 +80,9 @@ class FakeProvider:
                                   needs_clarification=self.brief_questions)
         elif call.role == "implementer":
             content = self.writes.pop(0) if self.writes else "ok"
-            (Path(call.cwd) / self.write_path).write_text(content, encoding="utf-8")
+            target = Path(call.cwd) / self.write_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
             if self.artifacts:
                 (Path(call.cwd) / "__pycache__").mkdir(exist_ok=True)
                 (Path(call.cwd) / "__pycache__" / "check.cpython-314.pyc").write_bytes(b"\0")

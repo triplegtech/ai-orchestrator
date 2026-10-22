@@ -5,7 +5,7 @@ from __future__ import annotations
 import operator
 from typing import Annotated, Any, Literal, TypedDict
 
-Status = Literal["intake", "planned", "implemented", "done", "blocked"]
+Status = Literal["intake", "planned", "implemented", "awaiting_approval", "done", "blocked"]
 
 
 class EngineeringState(TypedDict, total=False):
@@ -30,6 +30,7 @@ class EngineeringState(TypedDict, total=False):
     decision: Literal["done", "fix", "blocked"]
     gate_reason: str
     feedback: str
+    approval: dict[str, Any] | None  # {"approved": bool, "files": [...]} for confirm_paths changes
     commit_sha: str | None
     report_path: str
     events: Annotated[list[dict[str, Any]], operator.add]

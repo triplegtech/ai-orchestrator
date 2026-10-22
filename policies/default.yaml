@@ -13,6 +13,10 @@ denied_paths:
   - "**/id_ed25519*"
   - ".git/**"
   - ".claude/**"
+
+# Arquivos de CI/CD que podem ser alterados, mas só com confirmação humana: depois da validação e da
+# revisão, a tarefa pausa antes do commit (status awaiting_approval) até `aio approve <task-id>`.
+confirm_paths:
   - ".github/workflows/**"
 
 # Artefatos gerados por build/testes (inclusive pelos comandos de validação do próprio

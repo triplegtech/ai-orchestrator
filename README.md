@@ -59,7 +59,17 @@ Opções: `--repo <caminho>` (padrão: pasta atual), `--base <ref>` (padrão `HE
 especialista), `--config <yaml>`.
 
 Saída: branch `agents/<task-id>` com commit local (nunca push), `report.md` e `report.json` em
-`%LOCALAPPDATA%\ai-orchestrator\workspaces\<task-id>\`. Código de saída `0` = done, `2` = blocked.
+`%LOCALAPPDATA%\ai-orchestrator\workspaces\<task-id>\`. Código de saída `0` = done, `2` = blocked,
+`3` = aguardando aprovação.
+
+Alterações em CI/CD (`confirm_paths` em `policies/default.yaml`, por padrão `.github/workflows/**`)
+passam pela validação e pela revisão, mas a tarefa pausa antes do commit até você revisar o diff
+indicado no relatório e decidir:
+
+```powershell
+aio approve TASK-20261022-111253-64c0   # commita no branch da tarefa
+aio reject TASK-20261022-111253-64c0    # encerra como blocked, sem commit
+```
 
 Para integrar depois de revisar:
 
@@ -81,7 +91,7 @@ Grafo `engineering`. Entrada: `{"request": {"task": "...", "repo_path": "C:/..."
 ## Configuração
 
 - `config/orchestrator.yaml` — modelo/effort/orçamento por papel, limites, pasta de workspaces.
-- `policies/default.yaml` — caminhos proibidos, artefatos ignorados, comandos proibidos, permissões do
+- `policies/default.yaml` — caminhos proibidos, caminhos que exigem confirmação, artefatos ignorados, comandos proibidos, permissões do
   Claude Code por perfil de ferramentas.
 - `prompts/*.md` — instruções de cada papel.
 

@@ -4,8 +4,12 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+import typer
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 
+from ai_orchestrator.app import _execute
 from ai_orchestrator.contracts import TaskRequest
 from ai_orchestrator.orchestration.workflow import build_graph
 
@@ -157,6 +161,71 @@ def test_specialist_clarification_blocks_before_implementation(repo, make_deps):
     assert "devops: Onde roda o worker?" in state["blocked_reason"]
     assert [c.role for c in provider.calls] == ["planner", "devops"]
     assert state["briefs"][0]["role"] == "devops"
+
+
+CI_FILE = ".github/workflows/tests.yml"
+
+
+def start_ci_task(deps, repo: Path):
+    """Runs a task that edits a confirm_paths file; returns the paused graph and its config."""
+    graph = build_graph(deps).compile(checkpointer=InMemorySaver())
+    config = {"configurable": {"thread_id": "t1"}, "recursion_limit": 100}
+    req = TaskRequest(task="crie o workflow de CI", repo_path=str(repo),
+                      allowed_paths=[".github/workflows/**"], checks=["git status"])
+    graph.invoke({"task_id": "TASK-TEST", "request": req.model_dump()}, config)
+    return graph, config
+
+
+def test_confirm_paths_pause_before_commit_until_approved(repo, make_deps):
+    graph, config = start_ci_task(make_deps(FakeProvider(write_path=CI_FILE)), repo)
+
+    state = graph.get_state(config)
+    assert state.next == ("approval",)
+    assert state.values["status"] == "awaiting_approval"
+    assert state.values["validation"]["needs_confirmation"] == [CI_FILE]
+    assert not state.values.get("commit_sha")
+    report = Path(state.values["report_path"]).read_text(encoding="utf-8")
+    assert "Aguardando aprovação" in report and "aio approve TASK-TEST" in report
+
+    graph.invoke(Command(resume={"approved": True}), config)
+    state = graph.get_state(config).values
+    assert state["status"] == "done", state.get("blocked_reason")
+    assert state["approval"] == {"approved": True, "files": [CI_FILE]}
+    assert state["commit_sha"]
+    shown = subprocess.run(["git", "-C", str(repo), "show", f"agents/task-test:{CI_FILE}"],
+                           capture_output=True, text=True, check=True)
+    assert shown.stdout.strip() == "ok"
+
+
+def test_rejected_confirmation_blocks_without_commit(repo, make_deps):
+    graph, config = start_ci_task(make_deps(FakeProvider(write_path=CI_FILE)), repo)
+
+    graph.invoke(Command(resume={"approved": False}), config)
+    state = graph.get_state(config).values
+    assert state["status"] == "blocked"
+    assert "rejeitada pelo usuário" in state["blocked_reason"]
+    assert not state.get("commit_sha")
+
+
+def test_cli_pauses_then_approve_resumes_from_sqlite_checkpoint(repo, make_deps):
+    # Same path as `aio run` + `aio approve`: two separate graphs over the SQLite checkpointer.
+    deps = make_deps(FakeProvider(write_path=CI_FILE))
+    req = TaskRequest(task="crie o workflow de CI", repo_path=str(repo),
+                      allowed_paths=[".github/workflows/**"], checks=["git status"])
+    with pytest.raises(typer.Exit) as paused:
+        _execute(deps, "TASK-CLI", {"task_id": "TASK-CLI", "request": req.model_dump()})
+    assert paused.value.exit_code == 3
+
+    with pytest.raises(typer.Exit) as approved:
+        _execute(deps, "TASK-CLI", Command(resume={"approved": True}), awaiting_approval=True)
+    assert approved.value.exit_code == 0
+    shown = subprocess.run(["git", "-C", str(repo), "show", f"agents/task-cli:{CI_FILE}"],
+                           capture_output=True, text=True, check=True)
+    assert shown.stdout.strip() == "ok"
+    # A finished task can't be approved again.
+    with pytest.raises(typer.Exit) as again:
+        _execute(deps, "TASK-CLI", Command(resume={"approved": True}), awaiting_approval=True)
+    assert again.value.exit_code == 1
 
 
 def test_invalid_repo_is_blocked_with_report(tmp_path, make_deps):

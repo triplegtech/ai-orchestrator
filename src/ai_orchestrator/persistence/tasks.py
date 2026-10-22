@@ -24,6 +24,22 @@ def _md_report(s: dict[str, Any]) -> str:
     ]
     if status == "blocked":
         lines.append(f"**Motivo do bloqueio:** {s.get('blocked_reason', '')}")
+    pending = validation.get("needs_confirmation") or []
+    if status == "awaiting_approval" and pending:
+        lines += [
+            "",
+            "## Aguardando aprovação",
+            "Validação e revisão aprovadas, mas a alteração toca caminhos que exigem confirmação humana "
+            "(`confirm_paths` da política). Nada foi commitado ainda.",
+            "",
+            *[f"- `{p}`" for p in pending],
+            "",
+            "```powershell",
+            f'git -C "{ws.get("path")}" diff -- ' + " ".join(f'"{p}"' for p in pending),
+            f"aio approve {s.get('task_id')}      # commita no branch da tarefa",
+            f"aio reject {s.get('task_id')}       # encerra como blocked, sem commit",
+            "```",
+        ]
     if s.get("setup"):
         lines += ["", f"## Preparação do ambiente (stack: {(s.get('discovery') or {}).get('stack')})"]
         for c in s["setup"]:
@@ -49,7 +65,7 @@ def _md_report(s: dict[str, Any]) -> str:
         lines += ["", "## Revisão independente", review.get("summary", "")]
         lines += [f"- [{'x' if c['met'] else ' '}] {c['criterion']} — {c['evidence']}" for c in review.get("criteria", [])]
         lines += [f"- **{i['severity']}** {i.get('file') or ''}: {i['description']}" for i in review.get("issues", [])]
-    if ws:
+    if ws and status != "awaiting_approval":  # nothing committed yet; the section above has the diff
         repo, branch = req.get("repo_path", ""), ws.get("branch", "")
         lines += [
             "",

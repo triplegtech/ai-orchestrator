@@ -58,6 +58,11 @@ def check_scope(changed_files: list[str], allowed: list[str], denied: list[str])
     return violations
 
 
+def needs_confirmation(changed_files: list[str], confirm: list[str]) -> list[str]:
+    """Changed files that a human must approve before the commit. Not a scope violation."""
+    return [path for path in changed_files if path_matches(path, confirm)]
+
+
 def split_commands(commands: list[str], denied_patterns: list[str]) -> tuple[list[str], list[str]]:
     """Returns (allowed, rejected) validation commands."""
     allowed, rejected = [], []

@@ -101,6 +101,8 @@ class ValidationReport(BaseModel):
     changed_files: list[str]
     scope_violations: list[ScopeViolation] = Field(default_factory=list)
     commands: list[CommandResult] = Field(default_factory=list)
+    # Changed files under the policy's confirm_paths: they don't fail validation, they need human approval.
+    needs_confirmation: list[str] = Field(default_factory=list)
 
     @property
     def passed(self) -> bool:
@@ -149,6 +151,7 @@ class RunnerContract(BaseModel):
     workspace_id: str
     allowed_paths: list[str]
     denied_paths: list[str]
+    confirm_paths: list[str] = Field(default_factory=list)
     network_policy: Literal["restricted", "open"] = "restricted"
     timeout_seconds: int
     max_retries: int

@@ -57,7 +57,8 @@ Design e DevOps rodam entre `planning` e `implement` quando o plano pede (`Plan.
 usuário força (`--with`). Cada um devolve um `SpecialistBrief`: as orientações vão para o prompt do
 implementer e do reviewer, e os `acceptance_criteria` entram no plano — a revisão e o gate cobram.
 Eles não ampliam `allowed_paths`; o que exige arquivo fora do escopo ou caminho proibido
-(`.env.example`, `.github/workflows/**`) vira `risks`, listado no relatório como passo manual.
+(`.env.example`) vira `risks`, listado no relatório como passo manual. CI/CD (`.github/workflows/**`)
+pode ser alterado, mas cai em `confirm_paths`: a tarefa pausa para aprovação humana antes do commit.
 `needs_clarification` de um especialista bloqueia antes de gastar com implementação.
 
 **Um só cérebro:** o orquestrador é o LangGraph. Os agentes rodam com `--setting-sources project`,
@@ -70,6 +71,7 @@ de delegação competindo. Ele continua disponível para uso interativo no Claud
 intake → discovery → setup_workspace → planning → [specialists] → implement → validate ─┬─(passou)→ review → gate
                                                                       ▲                  └─(falhou)────────→ gate
                                                                       └────────────── fix ◄─────────────────┘
+gate ─(done, toca confirm_paths)→ request_approval → approval ⏸ ─(aio approve | aio reject)→ report
 gate → report (done | blocked)        qualquer etapa com erro → report (blocked)
 ```
 
@@ -84,6 +86,7 @@ gate → report (done | blocked)        qualquer etapa com erro → report (bloc
 | validate | código | Arquivos alterados via git (não via agente), checagem de escopo e de caminhos proibidos, execução real dos comandos; artefatos de build (`ignored_paths`) não contam |
 | review | IA | Só roda se a validação passou (economiza custo); recebe diff e saída real dos comandos |
 | gate | código | `done` / `fix` / `blocked` — orçamento de tentativas e de custo; comando de validação inexistente no ambiente (exit 127/9009) bloqueia sem retry |
+| request_approval / approval | código (condicional) | Só se o diff aprovado tocar `confirm_paths` (CI/CD): grava o relatório com status `awaiting_approval` e pausa o grafo (`interrupt`) sem commitar; `aio approve` segue para o commit, `aio reject` termina `blocked` |
 | report | código | Commit local no branch da tarefa (se `done`), `report.json` + `report.md` |
 
 Uma tarefa nunca é marcada como concluída por conveniência: sem evidência, ela fica `blocked` com o
@@ -104,6 +107,8 @@ validadas com Pydantic — mas o JSON não é prova: o executor confere tudo.
   `policies/default.yaml`: sem push/merge/reset/checkout, sem rede, sem `.env`/chaves, sem `.git/`/`.claude/`.
   Ações negadas aparecem na linha do tempo do relatório.
 - **Escopo verificado depois:** qualquer arquivo fora de `allowed_paths` ou em `denied_paths` reprova.
+- **Confirmação humana:** arquivo alterado em `confirm_paths` (CI/CD) não reprova, mas nunca é
+  commitado sem `aio approve <task-id>` depois que um humano revisou o diff.
 - **Comandos de validação:** propostas do planner passam por `denied_command_patterns`.
 - **Credenciais:** variáveis com KEY/TOKEN/SECRET/PASSWORD são removidas do ambiente dos agentes e dos
   comandos. `ANTHROPIC_API_KEY` nunca chega ao Claude Code (evita cobrança na API em vez da assinatura).

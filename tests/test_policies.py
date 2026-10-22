@@ -1,6 +1,12 @@
 from ai_orchestrator.config import Budgets, load_policy
 from ai_orchestrator.contracts import CommandResult, CriterionCheck, ReviewIssue, ReviewVerdict, ValidationReport
-from ai_orchestrator.orchestration.policies import check_scope, decide, path_matches, split_commands
+from ai_orchestrator.orchestration.policies import (
+    check_scope,
+    decide,
+    needs_confirmation,
+    path_matches,
+    split_commands,
+)
 
 POLICY = load_policy()
 
@@ -30,6 +36,12 @@ def test_scope_denied_paths_win_over_allowed():
     assert "proibido" in reasons["config/.env.local"]
     assert "fora" in reasons["routes/web.php"]
     assert "app/x.php" not in reasons
+
+
+def test_ci_files_need_confirmation_instead_of_being_denied():
+    changed = [".github/workflows/tests.yml", "src/app.py"]
+    assert needs_confirmation(changed, POLICY.confirm_paths) == [".github/workflows/tests.yml"]
+    assert check_scope(changed, [".github/workflows/**", "src/"], POLICY.denied_paths) == []
 
 
 def test_dangerous_commands_are_rejected():

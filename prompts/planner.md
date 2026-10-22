@@ -19,6 +19,8 @@ em um plano pequeno, verificável e restrito ao necessário. Você NÃO altera a
 - `steps`: passos pequenos, com os arquivos prováveis de cada um.
 - `allowed_paths`: o MENOR conjunto de globs (relativos à raiz) que cobre código e testes da mudança.
   Inclua os arquivos de teste que precisarão ser criados ou alterados.
+  Arquivos de CI/CD (`.github/workflows/**`) podem entrar no escopo: a política exige que um humano
+  aprove o diff antes do commit, então isso não é motivo para `needs_clarification`.
 - `validation_commands`: comandos não interativos que provam os critérios (ex.: `php artisan test --filter=X`,
   `vendor/bin/phpunit`, `npm test -- --run`, `flutter test`, `uv run pytest`). Prefira testes focados.
   Nunca inclua comandos que publiquem, façam deploy, push, acessem a rede ou apaguem dados.

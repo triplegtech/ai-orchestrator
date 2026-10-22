@@ -4,9 +4,11 @@
                                                                                 ^             |                  |
                                                                                 |             +-- (falhou) ----> |
                                                                                 +---------------- fix -----------+
-    gate -> report (done | blocked)
+    gate -> [request_approval -> approval] -> report (done | blocked)
 
 specialists (design, devops) only run when the planner or the user asks for them.
+request_approval/approval only run when the change touches the policy's confirm_paths: the graph
+pauses (interrupt) before the commit until `aio approve` or `aio reject`.
 
 Agents decide where there is ambiguity; everything else is deterministic code.
 """
@@ -20,7 +22,9 @@ from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from typing import Callable
 
+from langgraph.errors import GraphBubbleUp
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
 
 from ai_orchestrator.agents import implementer, planner, reviewer, specialists
 from ai_orchestrator.contracts import (
@@ -68,6 +72,8 @@ def guarded(node: str) -> Callable:
         def inner(state: EngineeringState, deps: Deps) -> dict:
             try:
                 return fn(state, deps)
+            except GraphBubbleUp:
+                raise  # interrupts are control flow, not failures
             except AgentError as exc:
                 return _blocked(node, str(exc), cost_usd=state.get("cost_usd", 0.0) + exc.cost_usd)
             except Exception as exc:  # noqa: BLE001 - surfaced in the report
@@ -193,6 +199,7 @@ def plan(state: EngineeringState, deps: Deps) -> dict:
         workspace_id=os.path.basename(ws.task_dir),
         allowed_paths=result.allowed_paths,
         denied_paths=deps.policy.denied_paths,
+        confirm_paths=deps.policy.confirm_paths,
         timeout_seconds=deps.settings.budgets.validation_timeout_seconds,
         max_retries=deps.settings.budgets.max_attempts,
     )
@@ -282,6 +289,7 @@ def validate(state: EngineeringState, deps: Deps) -> dict:
         denied_paths=deps.policy.denied_paths,
         commands=plan_.validation_commands,
         timeout=deps.settings.budgets.validation_timeout_seconds,
+        confirm_paths=deps.policy.confirm_paths,
     )
     summary = ", ".join(f"{c.command} -> {c.exit_code}" for c in report.commands) or "nenhum comando executado"
     return {
@@ -338,6 +346,29 @@ def gate(state: EngineeringState, deps: Deps) -> dict:
     return update
 
 
+@guarded("approval")
+def request_approval(state: EngineeringState, deps: Deps) -> dict:
+    """Changes under confirm_paths stop here, uncommitted, with a report for the human to review."""
+    files = state["validation"].get("needs_confirmation", [])
+    update = {"status": "awaiting_approval",
+              "events": [_event("approval", f"aguardando aprovação humana para: {', '.join(files)}")]}
+    final = {**state, **update, "events": state.get("events", []) + update["events"]}
+    update["report_path"] = str(write_report(final, deps.settings.workspaces_root))
+    return update
+
+
+def approval(state: EngineeringState, deps: Deps) -> dict:
+    # Not guarded: interrupt() pauses the graph by raising; `aio approve/reject` resumes it here.
+    files = state["validation"].get("needs_confirmation", [])
+    answer = interrupt({"task_id": state["task_id"], "files": files})
+    approved = bool((answer or {}).get("approved"))
+    result = {"approval": {"approved": approved, "files": files}}
+    if approved:
+        return {**result, "events": [_event("approval", "alteração aprovada pelo usuário")]}
+    return {**result, **_blocked("approval", "alteração que exige confirmação foi rejeitada pelo usuário: "
+                                 + ", ".join(files))}
+
+
 def report(state: EngineeringState, deps: Deps) -> dict:
     update: dict = {}
     if state.get("decision") == "done" and state.get("status") != "blocked":
@@ -361,6 +392,11 @@ def _unless_blocked(next_node: str) -> Callable[[EngineeringState], str]:
     return lambda state: "report" if state.get("status") == "blocked" else next_node
 
 
+def _after_done(state: EngineeringState) -> str:
+    needs_human = (state.get("validation") or {}).get("needs_confirmation")
+    return "request_approval" if needs_human else "report"
+
+
 def build_graph(deps: Deps) -> StateGraph:
     builder = StateGraph(EngineeringState)
     for name, fn in [
@@ -373,6 +409,8 @@ def build_graph(deps: Deps) -> StateGraph:
         ("validate", validate),
         ("review", review),
         ("gate", gate),
+        ("request_approval", request_approval),
+        ("approval", approval),
         ("report", report),
     ]:
         builder.add_node(name, functools.partial(fn, deps=deps))
@@ -397,9 +435,11 @@ def build_graph(deps: Deps) -> StateGraph:
     builder.add_conditional_edges("review", _unless_blocked("gate"), ["gate", "report"])
     builder.add_conditional_edges(
         "gate",
-        lambda s: {"fix": "implement", "done": "report"}.get(s.get("decision"), "report"),
-        ["implement", "report"],
+        lambda s: {"fix": "implement", "done": _after_done(s)}.get(s.get("decision"), "report"),
+        ["implement", "request_approval", "report"],
     )
+    builder.add_conditional_edges("request_approval", _unless_blocked("approval"), ["approval", "report"])
+    builder.add_edge("approval", "report")
     builder.add_edge("report", END)
     return builder
 

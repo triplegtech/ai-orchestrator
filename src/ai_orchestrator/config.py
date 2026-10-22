@@ -62,6 +62,8 @@ class ToolProfile(BaseModel):
 
 class Policy(BaseModel):
     denied_paths: list[str] = Field(default_factory=list)
+    # Changes here pass validation but pause the task for human approval before the commit.
+    confirm_paths: list[str] = Field(default_factory=list)
     ignored_paths: list[str] = Field(default_factory=list)
     denied_command_patterns: list[str] = Field(default_factory=list)
     claude_deny: list[str] = Field(default_factory=list)

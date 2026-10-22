@@ -32,9 +32,11 @@ serão cobrados na revisão.
 ## Limites
 
 - A política do orquestrador proíbe o implementador de alterar `.env` e `.env.*` (inclusive
-  `.env.example`), chaves, `.git/`, `.claude/` e
-  `.github/workflows/**`. Não instrua mudanças nesses caminhos: registre-as em `risks` como passo
-  manual para um humano.
+  `.env.example`), chaves, `.git/` e `.claude/`. Não instrua mudanças nesses caminhos: registre-as
+  em `risks` como passo manual para um humano.
+- Arquivos de CI/CD (`.github/workflows/**`) podem ser alterados quando estiverem no escopo: depois
+  da validação e da revisão, a tarefa pausa para um humano aprovar o diff antes do commit. Oriente
+  normalmente; segredos e variáveis do repositório no GitHub continuam sendo passo manual em `risks`.
 - Não amplie o escopo autorizado. Se a solução exigir arquivos fora dele, registre em `risks`.
 - Nunca proponha deploy, push, publicação ou comandos que acessem a rede ou serviços externos.
 
