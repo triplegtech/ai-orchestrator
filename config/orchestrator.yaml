@@ -80,3 +80,19 @@ roles:
     tool_profile: review
     prompt: reviewer.md
     max_budget_usd: 2.0
+  # Especialistas: só rodam quando o planner (campo specialists do plano) ou `--with` pedem.
+  # Consultores somente leitura entre o plano e a implementação; o que eles exigem vira critério de aceite.
+  design:
+    provider: claude_code
+    model: sonnet
+    effort: high
+    tool_profile: read_only
+    prompt: design.md
+    max_budget_usd: 1.5
+  devops:
+    provider: claude_code
+    model: sonnet
+    effort: medium
+    tool_profile: read_only
+    prompt: devops.md
+    max_budget_usd: 1.5

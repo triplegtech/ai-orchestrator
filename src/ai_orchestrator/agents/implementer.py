@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ai_orchestrator.agents.base import as_json, bullet_list, call_role
+from ai_orchestrator.agents.specialists import brief_section
 from ai_orchestrator.contracts import ImplementerResult, Plan, TaskRequest
 from ai_orchestrator.models.providers import AgentResponse
 
@@ -12,7 +13,8 @@ if TYPE_CHECKING:
     from ai_orchestrator.deps import Deps
 
 
-def build_prompt(task_id: str, request: TaskRequest, plan: Plan, attempt: int, feedback: str) -> str:
+def build_prompt(task_id: str, request: TaskRequest, plan: Plan, attempt: int, feedback: str,
+                 briefs: list[dict] = ()) -> str:
     brief = f"""# Tarefa {task_id}
 
 {request.task}
@@ -32,7 +34,8 @@ def build_prompt(task_id: str, request: TaskRequest, plan: Plan, attempt: int, f
 
 ## Comandos de validação (o executor vai rodá-los de novo depois de você)
 {bullet_list(plan.validation_commands)}
-"""
+
+{brief_section(list(briefs))}"""
     if attempt > 1 and feedback:
         return f"""{brief}
 ## Tentativa {attempt}: a anterior não passou no gate. Evidências reais do executor
@@ -57,11 +60,12 @@ def run(
     session_id: str | None,
     cwd: str,
     scratch_dir: str,
+    briefs: list[dict] = (),
 ) -> AgentResponse:
     return call_role(
         deps,
         "implementer",
-        prompt=build_prompt(task_id, request, plan, attempt, feedback),
+        prompt=build_prompt(task_id, request, plan, attempt, feedback, briefs),
         cwd=cwd,
         scratch_dir=scratch_dir,
         output_model=ImplementerResult,

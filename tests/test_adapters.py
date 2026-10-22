@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from ai_orchestrator.config import load_policy, load_settings
-from ai_orchestrator.contracts import Plan, ReviewVerdict
+from ai_orchestrator.contracts import Plan, ReviewVerdict, SpecialistBrief
 from ai_orchestrator.execution.claude_code import ClaudeCodeProvider, inline_refs
 from ai_orchestrator.execution.process import sanitized_env
 from ai_orchestrator.models.providers import AgentCall
@@ -10,9 +10,18 @@ from ai_orchestrator.models.registry import ModelRegistry, TaskContext
 
 
 def test_schema_is_self_contained():
-    for model in (Plan, ReviewVerdict):
+    for model in (Plan, ReviewVerdict, SpecialistBrief):
         text = json.dumps(inline_refs(model.model_json_schema()))
         assert "$ref" not in text and "$defs" not in text
+    specialists = inline_refs(Plan.model_json_schema())["properties"]["specialists"]
+    assert specialists["items"]["enum"] == ["design", "devops"]
+
+
+def test_specialist_roles_are_read_only():
+    settings, policy = load_settings(), load_policy()
+    for role in ("design", "devops"):
+        profile = policy.tool_profiles[settings.roles[role].tool_profile]
+        assert not {"Edit", "Write", "Bash", "PowerShell"} & set(profile.tools)
 
 
 def test_credentials_are_stripped(monkeypatch):

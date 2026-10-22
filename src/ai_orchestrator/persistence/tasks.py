@@ -34,6 +34,11 @@ def _md_report(s: dict[str, Any]) -> str:
         lines += ["", "## Plano", plan.get("summary", ""), "", "### Critérios de aceite"]
         lines += [f"- {c}" for c in plan.get("acceptance_criteria", [])]
         lines += ["", "### Escopo autorizado"] + [f"- `{p}`" for p in plan.get("allowed_paths", [])]
+    for brief in s.get("briefs") or []:
+        lines += ["", f"## Especialista: {brief['role']}", brief.get("summary", "")]
+        lines += [f"- {g}" for g in brief.get("guidance", [])]
+        if brief.get("risks"):
+            lines += ["", "**Riscos / passos manuais:**"] + [f"- {r}" for r in brief["risks"]]
     if validation:
         lines += ["", "## Validação (executada pelo orquestrador)"]
         lines += [f"- `{c['command']}` → exit {c['exit_code']}{' (timeout)' if c.get('timed_out') else ''} em {c['duration_seconds']}s"

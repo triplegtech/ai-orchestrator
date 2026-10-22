@@ -1,10 +1,12 @@
 """Engineering workflow as a persistent LangGraph state machine.
 
-    intake -> discovery -> setup_workspace -> planning -> implement -> validate -> review -> gate
-                                                              ^             |                  |
-                                                              |             +-- (falhou) ----> |
-                                                              +---------------- fix -----------+
+    intake -> discovery -> setup_workspace -> planning -> [specialists] -> implement -> validate -> review -> gate
+                                                                                ^             |                  |
+                                                                                |             +-- (falhou) ----> |
+                                                                                +---------------- fix -----------+
     gate -> report (done | blocked)
+
+specialists (design, devops) only run when the planner or the user asks for them.
 
 Agents decide where there is ambiguity; everything else is deterministic code.
 """
@@ -20,11 +22,12 @@ from typing import Callable
 
 from langgraph.graph import END, START, StateGraph
 
-from ai_orchestrator.agents import implementer, planner, reviewer
+from ai_orchestrator.agents import implementer, planner, reviewer, specialists
 from ai_orchestrator.contracts import (
     Plan,
     ReviewVerdict,
     RunnerContract,
+    SpecialistBrief,
     TaskRequest,
     ValidationReport,
 )
@@ -171,6 +174,9 @@ def plan(state: EngineeringState, deps: Deps) -> dict:
             allowed = preset.checks
             events.append(_event("plan", f"usando validação padrão da stack: {allowed}"))
         updates["validation_commands"] = allowed
+    updates["specialists"] = list(dict.fromkeys([*result.specialists, *request.specialists]))
+    if updates["specialists"]:
+        events.append(_event("plan", f"especialistas a consultar: {', '.join(updates['specialists'])}"))
     result = result.model_copy(update=updates)
 
     if result.needs_clarification:
@@ -193,6 +199,40 @@ def plan(state: EngineeringState, deps: Deps) -> dict:
     return {"plan": result.model_dump(), "contract": contract.model_dump(), "status": "planned", "cost_usd": cost, "events": events}
 
 
+@guarded("specialists")
+def consult_specialists(state: EngineeringState, deps: Deps) -> dict:
+    """Read-only consultants. Their criteria join the plan; they never widen the scope."""
+    request = TaskRequest.model_validate(state["request"])
+    plan_ = Plan.model_validate(state["plan"])
+    ws = _workspace(state)
+    cost = state.get("cost_usd", 0.0)
+    criteria = list(plan_.acceptance_criteria)
+    briefs: list[dict] = []
+    events: list[dict] = []
+    questions: list[str] = []
+    for role in plan_.specialists:
+        try:
+            resp = specialists.run(deps, role, state["task_id"], request, plan_, state["discovery"],
+                                   cwd=ws.path, scratch_dir=ws.task_dir)
+        except AgentError as exc:
+            blocked = _blocked("specialists", f"{role}: {exc}", briefs=briefs, cost_usd=cost + exc.cost_usd)
+            return {**blocked, "events": events + blocked["events"]}
+        brief: SpecialistBrief = resp.output
+        cost += resp.cost_usd
+        briefs.append({"role": role, **brief.model_dump()})
+        criteria += [c for c in brief.acceptance_criteria if c not in criteria]
+        questions += [f"{role}: {q}" for q in brief.needs_clarification]
+        events += [_event("specialists", f"{role}: {brief.summary}", cost_usd=resp.cost_usd),
+                   *_denial_events("specialists", resp)]
+
+    plan_ = plan_.model_copy(update={"acceptance_criteria": criteria})
+    if questions:
+        blocked = _blocked("specialists", "os especialistas precisam de esclarecimentos: " + " | ".join(questions),
+                           plan=plan_.model_dump(), briefs=briefs, cost_usd=cost)
+        return {**blocked, "events": events + blocked["events"]}
+    return {"plan": plan_.model_dump(), "briefs": briefs, "cost_usd": cost, "events": events}
+
+
 @guarded("implement")
 def implement(state: EngineeringState, deps: Deps) -> dict:
     attempt = state.get("attempts", 0) + 1
@@ -210,6 +250,7 @@ def implement(state: EngineeringState, deps: Deps) -> dict:
             session_id=session_id,
             cwd=ws.path,
             scratch_dir=ws.task_dir,
+            briefs=state.get("briefs") or [],
         )
         implementation, session_id, cost = resp.output.model_dump(), resp.session_id, cost + resp.cost_usd
         events = [_event("implement", f"tentativa {attempt}: {implementation['status']} — {implementation['summary']}"),
@@ -266,6 +307,7 @@ def review(state: EngineeringState, deps: Deps) -> dict:
             deps.workspaces.diff(ws),
             cwd=ws.path,
             scratch_dir=ws.task_dir,
+            briefs=state.get("briefs") or [],
         )
     except AgentError as exc:
         return {"review": None, "cost_usd": cost + exc.cost_usd, "events": [_event("review", f"erro do revisor — {exc}")]}
@@ -326,6 +368,7 @@ def build_graph(deps: Deps) -> StateGraph:
         ("discovery", discovery),
         ("setup_workspace", prepare_workspace),
         ("planning", plan),
+        ("specialists", consult_specialists),
         ("implement", implement),
         ("validate", validate),
         ("review", review),
@@ -338,7 +381,13 @@ def build_graph(deps: Deps) -> StateGraph:
     builder.add_conditional_edges("intake", _unless_blocked("discovery"), ["discovery", "report"])
     builder.add_conditional_edges("discovery", _unless_blocked("setup_workspace"), ["setup_workspace", "report"])
     builder.add_conditional_edges("setup_workspace", _unless_blocked("planning"), ["planning", "report"])
-    builder.add_conditional_edges("planning", _unless_blocked("implement"), ["implement", "report"])
+    builder.add_conditional_edges(
+        "planning",
+        lambda s: "report" if s.get("status") == "blocked"
+        else ("specialists" if (s.get("plan") or {}).get("specialists") else "implement"),
+        ["specialists", "implement", "report"],
+    )
+    builder.add_conditional_edges("specialists", _unless_blocked("implement"), ["implement", "report"])
     builder.add_conditional_edges("implement", _unless_blocked("validate"), ["validate", "report"])
     builder.add_conditional_edges(
         "validate",

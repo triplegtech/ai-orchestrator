@@ -62,3 +62,14 @@ def test_gate_limits():
     assert decide(failed, None, 1, 50.0, Budgets(max_cost_usd=10)).decision == "blocked"
     passed = ValidationReport(changed_files=["a"], commands=[ok_cmd()])
     assert decide(passed, None, 1, 0.0, Budgets()).decision == "blocked"
+
+
+def test_missing_command_blocks_without_retry():
+    for code, tail in [(9009, ""), (127, ""), (1, "'pytest' is not recognized as an internal or external command")]:
+        missing = ValidationReport(changed_files=["a"], commands=[
+            CommandResult(command="python -m unittest", exit_code=code, duration_seconds=0.1, output_tail=tail)])
+        result = decide(missing, None, 1, 0.0, Budgets(max_attempts=3))
+        assert result.decision == "blocked"
+        assert "não encontrado no ambiente" in result.reason and "python -m unittest" in result.reason
+    # An ordinary test failure still goes back to the implementer.
+    assert decide(ValidationReport(changed_files=["a"], commands=[ok_cmd(1)]), None, 1, 0.0, Budgets()).decision == "fix"

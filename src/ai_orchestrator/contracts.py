@@ -10,6 +10,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# Read-only consultants that run between planning and implementation when the task calls for them.
+Specialist = Literal["design", "devops"]
+
 
 class TaskRequest(BaseModel):
     task: str = Field(min_length=1)
@@ -19,6 +22,8 @@ class TaskRequest(BaseModel):
     checks: list[str] = Field(default_factory=list)
     # User-supplied scope overrides the planner's proposal.
     allowed_paths: list[str] = Field(default_factory=list)
+    # Specialists the user forces on, in addition to the ones the planner asks for.
+    specialists: list[Specialist] = Field(default_factory=list)
 
 
 class PlanStep(BaseModel):
@@ -36,6 +41,27 @@ class Plan(BaseModel):
     )
     validation_commands: list[str] = Field(
         description="Comandos de teste/lint/build que provam os critérios de aceite."
+    )
+    risks: list[str] = Field(default_factory=list)
+    needs_clarification: list[str] = Field(
+        default_factory=list,
+        description="Perguntas que impedem implementar com segurança. Vazio se nenhuma.",
+    )
+    specialists: list[Specialist] = Field(
+        default_factory=list,
+        description="Especialistas a consultar antes da implementação: design (UI/UX), devops (infra/deploy). "
+        "Vazio se nenhum for necessário.",
+    )
+
+
+class SpecialistBrief(BaseModel):
+    """A specialist's guidance. Its acceptance criteria join the plan, so reviewer and gate enforce them."""
+
+    summary: str
+    guidance: list[str] = Field(description="Orientações concretas para o implementador, dentro do escopo autorizado.")
+    acceptance_criteria: list[str] = Field(
+        default_factory=list,
+        description="Critérios verificáveis adicionais que a revisão deve cobrar.",
     )
     risks: list[str] = Field(default_factory=list)
     needs_clarification: list[str] = Field(

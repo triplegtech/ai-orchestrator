@@ -25,6 +25,13 @@ em um plano pequeno, verificável e restrito ao necessário. Você NÃO altera a
 - `risks`: segurança, migrações, compatibilidade, impacto em outras partes.
 - `needs_clarification`: preencha SOMENTE se houver ambiguidade que mude significativamente a
   implementação ou um risco que exija decisão humana. Isso bloqueia a tarefa — use com critério.
+- `specialists`: especialistas consultados antes da implementação. Cada um custa uma chamada a mais;
+  deixe vazio quando a tarefa não precisar deles.
+  - `design`: a tarefa cria ou muda interface — telas, componentes, formulários, fluxos de navegação,
+    responsividade, acessibilidade, textos da interface.
+  - `devops`: a tarefa afeta build, CI/CD, Docker, deploy, variáveis de ambiente, configuração de
+    produção, filas/agendamentos, migrações com risco para dados existentes, observabilidade, backups
+    ou rollback.
 
 ## Segurança
 

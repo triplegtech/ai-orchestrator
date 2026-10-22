@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
+from typing import get_args
 
 import typer
 
-from ai_orchestrator.contracts import TaskRequest
+from ai_orchestrator.contracts import Specialist, TaskRequest
 from ai_orchestrator.deps import default_deps
 from ai_orchestrator.orchestration.workflow import build_graph, new_task_id
 from ai_orchestrator.persistence.checkpoints import open_checkpointer
@@ -14,6 +16,8 @@ from ai_orchestrator.persistence.checkpoints import open_checkpointer
 app = typer.Typer(help="Equipe autônoma de agentes de engenharia (LangGraph + Claude Code).", no_args_is_help=True)
 
 EXIT_CODES = {"done": 0, "blocked": 2}
+
+SpecialistChoice = Enum("SpecialistChoice", {name: name for name in get_args(Specialist)}, type=str)
 
 
 def _execute(deps, task_id: str, graph_input: dict | None) -> None:
@@ -44,12 +48,15 @@ def run(
     base: str = typer.Option("HEAD", "--base", "-b", help="Ref base do worktree."),
     check: list[str] | None = typer.Option(None, "--check", "-c", help="Comando de validação (repetível). Sobrepõe o planner."),
     allow_path: list[str] | None = typer.Option(None, "--allow-path", "-a", help="Glob autorizado (repetível). Sobrepõe o planner."),
+    with_: list[SpecialistChoice] | None = typer.Option(None, "--with", "-w",
+                                                        help="Força um especialista (repetível)."),
     config: Path | None = typer.Option(None, "--config", help="Arquivo de configuração alternativo."),
 ) -> None:
     """Executa uma tarefa de ponta a ponta até cumprir os critérios ou atingir um limite."""
     deps = default_deps(config)
     request = TaskRequest(task=task, repo_path=str((repo or Path.cwd()).resolve()), base_ref=base,
-                          checks=check or [], allowed_paths=allow_path or [])
+                          checks=check or [], allowed_paths=allow_path or [],
+                          specialists=[s.value for s in with_ or []])
     task_id = new_task_id()
     typer.echo(f"{task_id} · workspaces em {deps.settings.workspaces_root}")
     _execute(deps, task_id, {"task_id": task_id, "request": request.model_dump()})

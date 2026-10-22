@@ -124,6 +124,41 @@ def test_failed_setup_blocks_before_any_agent_call(repo, make_deps):
     assert "Preparação do ambiente" in Path(state["report_path"]).read_text(encoding="utf-8")
 
 
+def test_no_specialists_unless_requested(repo, make_deps):
+    provider = FakeProvider()
+    state = run_task(make_deps(provider), repo)
+
+    assert state["status"] == "done", state.get("blocked_reason")
+    assert [c.role for c in provider.calls] == ["planner", "implementer", "reviewer"]
+    assert not state.get("briefs")
+
+
+def test_specialists_guide_implementer_and_add_criteria(repo, make_deps):
+    # The planner asks for design; the user forces devops on top.
+    provider = FakeProvider(specialists=["design"])
+    state = run_task(make_deps(provider), repo, specialists=["devops", "design"])
+
+    assert state["status"] == "done", state.get("blocked_reason")
+    assert [c.role for c in provider.calls] == ["planner", "design", "devops", "implementer", "reviewer"]
+    assert [b["role"] for b in state["briefs"]] == ["design", "devops"]
+    assert state["plan"]["acceptance_criteria"] == ["hello.txt contém ok", "critério de design", "critério de devops"]
+    assert state["plan"]["allowed_paths"] == ["hello.txt"]  # specialists never widen the scope
+    implementer_prompt, reviewer_prompt = provider.calls[3].prompt, provider.calls[4].prompt
+    assert "siga o padrão de design" in implementer_prompt and "siga o padrão de devops" in implementer_prompt
+    assert "critério de devops" in reviewer_prompt and "Orientações dos especialistas" in reviewer_prompt
+    assert "Especialista: design" in Path(state["report_path"]).read_text(encoding="utf-8")
+
+
+def test_specialist_clarification_blocks_before_implementation(repo, make_deps):
+    provider = FakeProvider(specialists=["devops"], brief_questions=["Onde roda o worker?"])
+    state = run_task(make_deps(provider), repo)
+
+    assert state["status"] == "blocked"
+    assert "devops: Onde roda o worker?" in state["blocked_reason"]
+    assert [c.role for c in provider.calls] == ["planner", "devops"]
+    assert state["briefs"][0]["role"] == "devops"
+
+
 def test_invalid_repo_is_blocked_with_report(tmp_path, make_deps):
     provider = FakeProvider()
     not_repo = tmp_path / "nope"

@@ -19,6 +19,7 @@ class EngineeringState(TypedDict, total=False):
     setup: list[dict[str, Any]]      # CommandResult of the stack preset's setup
     plan: dict[str, Any]             # Plan
     contract: dict[str, Any]         # RunnerContract
+    briefs: list[dict[str, Any]]     # SpecialistBrief + "role", in consultation order
     attempts: int
     cost_usd: float
     implementer_session_id: str | None

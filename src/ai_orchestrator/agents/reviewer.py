@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ai_orchestrator.agents.base import as_json, bullet_list, call_role
+from ai_orchestrator.agents.specialists import brief_section
 from ai_orchestrator.contracts import Plan, ReviewVerdict, TaskRequest, ValidationReport
 from ai_orchestrator.models.providers import AgentResponse
 
@@ -19,6 +20,7 @@ def build_prompt(
     implementation: dict,
     validation: ValidationReport,
     diff: str,
+    briefs: list[dict] = (),
 ) -> str:
     commands = [
         {"command": c.command, "exit_code": c.exit_code, "duration_seconds": c.duration_seconds,
@@ -36,6 +38,7 @@ def build_prompt(
 ## Escopo autorizado
 {bullet_list(plan.allowed_paths)}
 
+{brief_section(list(briefs))}
 ## O que o implementador afirma (não é prova)
 ```json
 {as_json(implementation)}
@@ -65,11 +68,12 @@ def run(
     diff: str,
     cwd: str,
     scratch_dir: str,
+    briefs: list[dict] = (),
 ) -> AgentResponse:
     return call_role(
         deps,
         "reviewer",
-        prompt=build_prompt(task_id, request, plan, implementation, validation, diff),
+        prompt=build_prompt(task_id, request, plan, implementation, validation, diff, briefs),
         cwd=cwd,
         scratch_dir=scratch_dir,
         output_model=ReviewVerdict,

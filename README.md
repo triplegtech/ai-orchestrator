@@ -48,8 +48,15 @@ workspace é preparado antes de qualquer agente rodar — Laravel+Vite: `compose
 `key:generate`, chaves do Passport (se houver), `npm ci`, `npm run build`; Flutter: `pub get`;
 Python: `uv sync`. Se o planner não propuser testes focados, usa a validação padrão da stack.
 
+Especialistas entram só quando necessário: o planner decide se a tarefa precisa de **design**
+(telas, componentes, formulários, acessibilidade) ou **devops** (build, CI, Docker, deploy, variáveis
+de ambiente, migrações arriscadas). Eles leem o repositório sem alterar nada, orientam o implementador
+e acrescentam critérios de aceite que a revisão cobra. Passos manuais (ex.: variável nova no
+`.env.example` ou no servidor) aparecem no relatório.
+
 Opções: `--repo <caminho>` (padrão: pasta atual), `--base <ref>` (padrão `HEAD`), `--check` e
-`--allow-path` repetíveis (sobrepõem o planner), `--config <yaml>`.
+`--allow-path` repetíveis (sobrepõem o planner), `--with design|devops` repetível (força um
+especialista), `--config <yaml>`.
 
 Saída: branch `agents/<task-id>` com commit local (nunca push), `report.md` e `report.json` em
 `%LOCALAPPDATA%\ai-orchestrator\workspaces\<task-id>\`. Código de saída `0` = done, `2` = blocked.

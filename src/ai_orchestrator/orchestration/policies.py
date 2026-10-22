@@ -106,6 +106,21 @@ def _review_feedback(review: ReviewVerdict) -> str:
     return "\n".join(lines)
 
 
+# Exit codes for "command not found": POSIX shells (127) and cmd.exe (9009).
+MISSING_COMMAND_EXIT_CODES = {127, 9009}
+MISSING_COMMAND_MESSAGES = ("is not recognized as an internal or external command", "command not found")
+
+
+def missing_commands(report: ValidationReport) -> list[str]:
+    """Validation commands the environment cannot run at all. No code change fixes these."""
+    return [
+        c.command
+        for c in report.commands
+        if c.exit_code in MISSING_COMMAND_EXIT_CODES
+        or (c.exit_code != 0 and any(m in c.output_tail for m in MISSING_COMMAND_MESSAGES))
+    ]
+
+
 def decide(
     validation: ValidationReport,
     review: ReviewVerdict | None,
@@ -116,6 +131,16 @@ def decide(
     """Decision gate: done only with objective evidence; otherwise fix or block."""
     if validation.passed and review is not None and not review.blocking:
         return GateResult("done", "validação e revisão aprovadas")
+
+    missing = missing_commands(validation)
+    if missing:
+        # Environment problem, like a failed setup: retrying the implementer cannot fix it.
+        return GateResult(
+            "blocked",
+            "comando de validação não encontrado no ambiente: " + ", ".join(f"`{c}`" for c in missing)
+            + "; instale a ferramenta ou informe --check com o caminho completo",
+            _validation_feedback(validation),
+        )
 
     if not validation.passed:
         reason, feedback = "validação reprovada", _validation_feedback(validation)

@@ -44,10 +44,21 @@ Planner      Implementer      Reviewer        ← papéis, cada um com modelo/fe
 | **Planner** | opus / effort high | Read, Glob, Grep (somente leitura) | Inspeciona o repo; gera critérios de aceite verificáveis, passos, `allowed_paths`, comandos de validação, riscos, perguntas bloqueantes |
 | **Implementer** | sonnet → opus a partir da 2ª tentativa | Read, Edit, Write, Glob, Grep, Bash, PowerShell (com deny list) | Edita o worktree, roda os testes, reporta com honestidade; retoma a mesma sessão nas correções (`--resume`) |
 | **Reviewer** | opus / effort high | Read, Glob, Grep, `git diff/log/show/status` | Avalia cada critério com evidência, correção, testes, segurança e escopo sobre o **diff real** |
+| **Design** *(condicional)* | sonnet / effort high | Read, Glob, Grep (somente leitura) | Reuso de componentes/tema existentes, estados vazio/carregando/erro, responsividade, acessibilidade, textos |
+| **DevOps** *(condicional)* | sonnet / effort medium | Read, Glob, Grep (somente leitura) | Variáveis de ambiente, migrações reversíveis, filas, build, CI, deploy e rollback; aponta passos manuais |
 
 Mapeamento dos especialistas do `tripleg-orchestrator.md`: Product Analyst + Software Architect →
-Planner; Backend/Database/Web/Mobile/DevOps → Implementer (detecta a stack); QA + Code Reviewer +
-Security → Reviewer. Separar em especialistas por stack é a Fase 4.
+Planner; Backend/Database/Web/Mobile → Implementer (detecta a stack); DevOps → DevOps (consultor) +
+Implementer; QA + Code Reviewer + Security → Reviewer. Design não existe naquele arquivo; os gatilhos
+vêm dos itens de interface do Frontend Engineer.
+
+**Especialistas são consultores, não implementadores.** Um só implementer, um worktree, uma sessão.
+Design e DevOps rodam entre `planning` e `implement` quando o plano pede (`Plan.specialists`) ou o
+usuário força (`--with`). Cada um devolve um `SpecialistBrief`: as orientações vão para o prompt do
+implementer e do reviewer, e os `acceptance_criteria` entram no plano — a revisão e o gate cobram.
+Eles não ampliam `allowed_paths`; o que exige arquivo fora do escopo ou caminho proibido
+(`.env.example`, `.github/workflows/**`) vira `risks`, listado no relatório como passo manual.
+`needs_clarification` de um especialista bloqueia antes de gastar com implementação.
 
 **Um só cérebro:** o orquestrador é o LangGraph. Os agentes rodam com `--setting-sources project`,
 então o `tripleg-orchestrator` (agente de usuário) não é carregado dentro deles — evita duas camadas
@@ -56,9 +67,9 @@ de delegação competindo. Ele continua disponível para uso interativo no Claud
 ## Fluxo (máquina de estados)
 
 ```
-intake → discovery → setup_workspace → planning → implement → validate ─┬─(passou)→ review → gate
-                                                      ▲                  └─(falhou)────────→ gate
-                                                      └────────────── fix ◄─────────────────┘
+intake → discovery → setup_workspace → planning → [specialists] → implement → validate ─┬─(passou)→ review → gate
+                                                                      ▲                  └─(falhou)────────→ gate
+                                                                      └────────────── fix ◄─────────────────┘
 gate → report (done | blocked)        qualquer etapa com erro → report (blocked)
 ```
 
@@ -68,10 +79,11 @@ gate → report (done | blocked)        qualquer etapa com erro → report (bloc
 | discovery | código | Fatos determinísticos do commit base: manifests, arquivos de instrução, diretórios de teste |
 | setup_workspace | código | `git worktree add -b agents/<task>` fora do OneDrive |
 | planning | IA | Plano estruturado; `--check`/`--allow-path` do usuário sobrepõem o planner; comandos perigosos são descartados; `needs_clarification` bloqueia |
+| specialists | IA (condicional) | Só se o plano ou `--with` pedirem: design e/ou devops, somente leitura; critérios entram no plano, perguntas bloqueiam |
 | implement | IA | Implementa; nas correções recebe o erro real e retoma a sessão |
 | validate | código | Arquivos alterados via git (não via agente), checagem de escopo e de caminhos proibidos, execução real dos comandos; artefatos de build (`ignored_paths`) não contam |
 | review | IA | Só roda se a validação passou (economiza custo); recebe diff e saída real dos comandos |
-| gate | código | `done` / `fix` / `blocked` — orçamento de tentativas e de custo |
+| gate | código | `done` / `fix` / `blocked` — orçamento de tentativas e de custo; comando de validação inexistente no ambiente (exit 127/9009) bloqueia sem retry |
 | report | código | Commit local no branch da tarefa (se `done`), `report.json` + `report.md` |
 
 Uma tarefa nunca é marcada como concluída por conveniência: sem evidência, ela fica `blocked` com o
@@ -79,7 +91,7 @@ motivo e tudo o que foi produzido até ali.
 
 ## Contratos (`src/ai_orchestrator/contracts.py`)
 
-`TaskRequest`, `Plan`, `ImplementerResult` (o JSON da conversa), `CommandResult`, `ValidationReport`,
+`TaskRequest`, `Plan`, `SpecialistBrief`, `ImplementerResult` (o JSON da conversa), `CommandResult`, `ValidationReport`,
 `ReviewVerdict`, `RunnerContract`. As saídas dos agentes são forçadas com `--json-schema` e
 validadas com Pydantic — mas o JSON não é prova: o executor confere tudo.
 
