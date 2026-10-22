@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import subprocess
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from ai_orchestrator.orchestration.policies import path_matches
@@ -33,6 +33,8 @@ class Workspace:
     path: str
     branch: str
     base_sha: str
+    # Untracked files produced by environment setup (e.g. a generated .env); not task changes.
+    baseline: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -44,8 +46,12 @@ class GitWorkspaceManager:
         # Build/test artifacts: never reported as changes, never committed.
         self.ignored_paths = ignored_paths or []
 
-    def _exclude_pathspecs(self) -> list[str]:
-        return ["--", ".", *(f":(exclude,glob){p}" for p in self.ignored_paths)]
+    def _exclude_pathspecs(self, ws: Workspace) -> list[str]:
+        return [
+            "--", ".",
+            *(f":(exclude,glob){p}" for p in self.ignored_paths),
+            *(f":(exclude,literal){p}" for p in ws.baseline),
+        ]
 
     def resolve_repo(self, repo_path: str) -> str:
         return git(repo_path, "rev-parse", "--show-toplevel").strip()
@@ -71,18 +77,18 @@ class GitWorkspaceManager:
         """Files differing from the base commit: committed, staged, unstaged and untracked."""
         tracked = git(ws.path, "diff", "--name-only", "--no-renames", ws.base_sha).splitlines()
         untracked = git(ws.path, "ls-files", "--others", "--exclude-standard").splitlines()
-        paths = {p.strip() for p in tracked + untracked if p.strip()}
+        paths = {p.strip() for p in tracked + untracked if p.strip()} - set(ws.baseline)
         return sorted(p for p in paths if not path_matches(p, self.ignored_paths))
 
     def diff(self, ws: Workspace, max_chars: int = 80_000) -> str:
-        git(ws.path, "add", "--intent-to-add", "--all", *self._exclude_pathspecs())
-        text = git(ws.path, "diff", "--stat", "--patch", ws.base_sha, *self._exclude_pathspecs())
+        git(ws.path, "add", "--intent-to-add", "--all", *self._exclude_pathspecs(ws))
+        text = git(ws.path, "diff", "--stat", "--patch", ws.base_sha, *self._exclude_pathspecs(ws))
         if len(text) > max_chars:
             text = text[:max_chars] + f"\n\n[diff truncado em {max_chars} caracteres]"
         return text
 
     def commit(self, ws: Workspace, message: str) -> str | None:
-        git(ws.path, "add", "--all", *self._exclude_pathspecs())
+        git(ws.path, "add", "--all", *self._exclude_pathspecs(ws))
         if not git(ws.path, "diff", "--cached", "--name-only").strip():
             return None
         git(

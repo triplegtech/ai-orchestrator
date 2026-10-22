@@ -9,7 +9,9 @@ from langgraph.checkpoint.memory import InMemorySaver
 from ai_orchestrator.contracts import TaskRequest
 from ai_orchestrator.orchestration.workflow import build_graph
 
-from conftest import FakeProvider
+from conftest import CHECK_COMMAND, FakeProvider
+
+PYTHON = CHECK_COMMAND.split(" check.py")[0]
 
 
 def run_task(deps, repo: Path, **request):
@@ -89,6 +91,37 @@ def test_review_rejection_blocks_when_out_of_attempts(repo, make_deps):
     assert state["status"] == "blocked"
     assert "revisão reprovada" in state["blocked_reason"]
     assert not state.get("commit_sha")
+
+
+def test_stack_preset_prepares_workspace_and_supplies_default_checks(repo, make_deps):
+    presets = {"demo": {"detect": ["check.py", "README.md"],
+                        "setup": [f"{PYTHON} -c \"open('setup.done', 'w').close()\""],
+                        "checks": [CHECK_COMMAND]}}
+    # The planner proposes only a forbidden command, so the preset's checks take over.
+    provider = FakeProvider(plan_checks=["git push origin main"])
+    state = run_task(make_deps(provider, presets=presets), repo)
+
+    assert state["status"] == "done", state.get("blocked_reason")
+    assert state["discovery"]["stack"] == "demo"
+    assert state["setup"][0]["exit_code"] == 0
+    assert state["workspace"]["baseline"] == ["setup.done"]
+    assert state["validation"]["changed_files"] == ["hello.txt"]
+    assert state["plan"]["validation_commands"] == [CHECK_COMMAND]
+    tree = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "--name-only", "agents/task-test"],
+                          capture_output=True, text=True, check=True).stdout
+    assert "setup.done" not in tree
+    assert "Ambiente do workspace" in provider.calls[0].prompt
+
+
+def test_failed_setup_blocks_before_any_agent_call(repo, make_deps):
+    presets = {"demo": {"detect": ["check.py"], "setup": [f"{PYTHON} -c \"raise SystemExit(3)\""]}}
+    provider = FakeProvider()
+    state = run_task(make_deps(provider, presets=presets), repo)
+
+    assert state["status"] == "blocked"
+    assert "preparação do ambiente falhou" in state["blocked_reason"]
+    assert provider.calls == []
+    assert "Preparação do ambiente" in Path(state["report_path"]).read_text(encoding="utf-8")
 
 
 def test_invalid_repo_is_blocked_with_report(tmp_path, make_deps):

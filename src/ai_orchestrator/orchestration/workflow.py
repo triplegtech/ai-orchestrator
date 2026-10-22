@@ -114,27 +114,47 @@ def intake(state: EngineeringState, deps: Deps) -> dict:
 def discovery(state: EngineeringState, deps: Deps) -> dict:
     files = deps.workspaces.tracked_files(state["request"]["repo_path"], state["base_sha"])
     paths = [PurePosixPath(f) for f in files]
+    stack = deps.settings.detect_stack({str(p) for p in paths if len(p.parts) == 1})
     facts = {
+        "stack": stack,
         "file_count": len(files),
         "top_level": sorted({p.parts[0] for p in paths})[:80],
         "manifests": sorted(str(p) for p in paths if p.name in MANIFESTS and len(p.parts) <= 3)[:40],
         "instruction_files": sorted(str(p) for p in paths if p.name in INSTRUCTION_FILES and len(p.parts) <= 3),
         "has_tests_dir": any(part.lower() in ("test", "tests", "spec", "__tests__") for p in paths for part in p.parts[:2]),
     }
-    return {"discovery": facts, "events": [_event("discovery", f"{len(files)} arquivos; manifests: {facts['manifests'][:6]}")]}
+    message = f"stack: {stack or 'não detectada'}; {len(files)} arquivos; manifests: {facts['manifests'][:6]}"
+    return {"discovery": facts, "events": [_event("discovery", message)]}
 
 
 @guarded("workspace")
 def prepare_workspace(state: EngineeringState, deps: Deps) -> dict:
     ws = deps.workspaces.create(state["request"]["repo_path"], state["task_id"], state["base_sha"])
-    return {"workspace": ws.to_dict(), "events": [_event("workspace", f"worktree {ws.path} no branch {ws.branch}")]}
+    events = [_event("workspace", f"worktree {ws.path} no branch {ws.branch}")]
+    preset = deps.settings.stack_presets.get(state["discovery"].get("stack") or "")
+    results = []
+    for command in preset.setup if preset else []:
+        result = deps.runner.run(command, cwd=ws.path, timeout=deps.settings.budgets.validation_timeout_seconds)
+        results.append(result.model_dump())
+        events.append(_event("workspace", f"setup: {command} -> {result.exit_code}"))
+        if result.exit_code != 0 or result.timed_out:
+            # Environment problem: no agent can fix it, so stop before spending on one.
+            return _blocked("workspace", f"preparação do ambiente falhou em `{command}` (exit {result.exit_code})",
+                            workspace=ws.to_dict(), setup=results, events=events)
+    ws.baseline = deps.workspaces.changed_files(ws)
+    if ws.baseline:
+        events.append(_event("workspace", f"arquivos gerados pelo setup (fora do escopo da tarefa): {ws.baseline[:10]}"))
+    return {"workspace": ws.to_dict(), "setup": results, "events": events}
 
 
 @guarded("plan")
 def plan(state: EngineeringState, deps: Deps) -> dict:
     request = TaskRequest.model_validate(state["request"])
     ws = _workspace(state)
-    resp = planner.run(deps, state["task_id"], request, state["discovery"], cwd=ws.path, scratch_dir=ws.task_dir)
+    preset = deps.settings.stack_presets.get(state["discovery"].get("stack") or "")
+    environment = planner.environment_note(preset.setup, preset.checks) if preset else ""
+    resp = planner.run(deps, state["task_id"], request, state["discovery"],
+                       cwd=ws.path, scratch_dir=ws.task_dir, environment=environment)
     result: Plan = resp.output
     cost = state.get("cost_usd", 0.0) + resp.cost_usd
     events = [_event("plan", result.summary, cost_usd=resp.cost_usd), *_denial_events("plan", resp)]
@@ -146,8 +166,11 @@ def plan(state: EngineeringState, deps: Deps) -> dict:
         updates["validation_commands"] = request.checks
     else:
         allowed, rejected = split_commands(result.validation_commands, deps.policy.denied_command_patterns)
-        updates["validation_commands"] = allowed
         events += [_event("plan", f"comando descartado pela política: {c}") for c in rejected]
+        if not allowed and preset and preset.checks:
+            allowed = preset.checks
+            events.append(_event("plan", f"usando validação padrão da stack: {allowed}"))
+        updates["validation_commands"] = allowed
     result = result.model_copy(update=updates)
 
     if result.needs_clarification:

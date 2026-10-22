@@ -16,6 +16,7 @@ class EngineeringState(TypedDict, total=False):
     blocked_reason: str
     discovery: dict[str, Any]
     workspace: dict[str, Any]        # Workspace
+    setup: list[dict[str, Any]]      # CommandResult of the stack preset's setup
     plan: dict[str, Any]             # Plan
     contract: dict[str, Any]         # RunnerContract
     attempts: int

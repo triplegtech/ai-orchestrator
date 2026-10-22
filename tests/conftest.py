@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from ai_orchestrator.config import load_policy, load_settings
+from ai_orchestrator.config import StackPreset, load_policy, load_settings
 from ai_orchestrator.contracts import CriterionCheck, ImplementerResult, Plan, PlanStep, ReviewVerdict
 from ai_orchestrator.deps import Deps
 from ai_orchestrator.execution.git_workspace import GitWorkspaceManager
@@ -43,7 +43,9 @@ def repo(tmp_path: Path) -> Path:
 class FakeProvider:
     """Scripted agents. `writes` is the content the implementer writes on each attempt."""
 
-    def __init__(self, writes=("ok",), write_path="hello.txt", approve=True, clarification=(), artifacts=False):
+    def __init__(self, writes=("ok",), write_path="hello.txt", approve=True, clarification=(), artifacts=False,
+                 plan_checks=None):
+        self.plan_checks = plan_checks if plan_checks is not None else [CHECK_COMMAND, "git push origin main"]
         self.artifacts = artifacts
         self.writes = list(writes)
         self.write_path = write_path
@@ -59,7 +61,7 @@ class FakeProvider:
                 acceptance_criteria=["hello.txt contém ok"],
                 steps=[PlanStep(id="1", description="escrever arquivo", files=["hello.txt"])],
                 allowed_paths=["hello.txt"],
-                validation_commands=[CHECK_COMMAND, "git push origin main"],
+                validation_commands=self.plan_checks,
                 needs_clarification=self.clarification,
             )
         elif call.role == "implementer":
@@ -78,11 +80,12 @@ class FakeProvider:
 
 @pytest.fixture
 def make_deps(tmp_path: Path):
-    def factory(provider: FakeProvider, max_attempts: int = 3) -> Deps:
+    def factory(provider: FakeProvider, max_attempts: int = 3, presets: dict | None = None) -> Deps:
         settings = load_settings()
         settings = settings.model_copy(update={
             "workspaces_root": tmp_path / "workspaces",
             "budgets": settings.budgets.model_copy(update={"max_attempts": max_attempts}),
+            "stack_presets": {k: StackPreset(**v) for k, v in (presets or {}).items()},
         })
         policy = load_policy()
         return Deps(

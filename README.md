@@ -12,22 +12,35 @@ Arquitetura, decisões e roadmap: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - [uv](https://docs.astral.sh/uv/) e Git
 - Claude Code instalado e logado (`claude auth`) — **sem** `ANTHROPIC_API_KEY` no ambiente
 
+## Instalação (uma vez)
+
+```powershell
+uv tool install --editable C:\Users\gabri\OneDrive\Documentos\tripleg\ai-orchestrator
+```
+
+Coloca `aio` (e `ai-orchestrator`) no PATH. Editável: mudanças no código, config e prompts deste
+repositório valem na hora. Depois de alterar dependências: `uv tool install --editable --reinstall .`.
+
 ## Uso
 
 ```powershell
-uv sync
-
-# Executa uma tarefa até cumprir os critérios ou atingir um limite
-uv run ai-orchestrator run "Adicione paginação ao endpoint de usuários" `
-  --repo C:\caminho\para\projeto `
-  --check "php artisan test --filter=UserIndexTest"   # opcional; sem ele o planner propõe
+cd C:\caminho\para\projeto
+aio run "Adicione paginação ao endpoint de usuários"
 
 # Retoma uma tarefa interrompida
-uv run ai-orchestrator resume TASK-20261022-111253-64c0
+aio resume TASK-20261022-111253-64c0
 ```
 
-Opções: `--base <ref>` (padrão `HEAD`), `--check` e `--allow-path` repetíveis (sobrepõem o
-planner), `--config <yaml>`.
+No Claude Code, em qualquer projeto: `/aio Adicione paginação ao endpoint de usuários`
+(skill de usuário em `~/.claude/skills/aio/`; roda em segundo plano e resume o relatório).
+
+A stack é detectada pela raiz do repositório (`stack_presets` em `config/orchestrator.yaml`) e o
+workspace é preparado antes de qualquer agente rodar — Laravel+Vite: `composer install`, `.env`,
+`key:generate`, chaves do Passport (se houver), `npm ci`, `npm run build`; Flutter: `pub get`;
+Python: `uv sync`. Se o planner não propuser testes focados, usa a validação padrão da stack.
+
+Opções: `--repo <caminho>` (padrão: pasta atual), `--base <ref>` (padrão `HEAD`), `--check` e
+`--allow-path` repetíveis (sobrepõem o planner), `--config <yaml>`.
 
 Saída: branch `agents/<task-id>` com commit local (nunca push), `report.md` e `report.json` em
 `%LOCALAPPDATA%\ai-orchestrator\workspaces\<task-id>\`. Código de saída `0` = done, `2` = blocked.

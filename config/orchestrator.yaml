@@ -13,6 +13,46 @@ budgets:
   agent_timeout_seconds: 1800  # por chamada de agente
   validation_timeout_seconds: 900  # por comando de validação
 
+# Detecção de stack pela raiz do repositório (o primeiro preset que casar vence).
+# setup roda uma vez no workspace recém-criado, antes de qualquer chamada de agente:
+# o workspace é uma cópia limpa do último commit, sem vendor/, node_modules/ nem .env.
+# Falha no setup bloqueia a tarefa sem gastar com agentes.
+# checks são usados quando nem --check nem o planner definem comandos de validação.
+stack_presets:
+  # Laravel + Vite: testes que renderizam Blade com @vite precisam de public/build/manifest.json.
+  laravel-vite:
+    detect: [artisan, composer.json, package-lock.json, vite.config.js]
+    setup:
+      - composer install --no-interaction --no-progress --quiet
+      - php -r "file_exists('.env') || copy('.env.example', '.env');"
+      - php artisan key:generate --quiet
+      - php -r "is_dir('vendor/laravel/passport') && passthru('php artisan passport:keys --force --no-interaction --quiet');"
+      - npm ci --no-audit --no-fund --loglevel=error
+      - npm run build
+    checks:
+      - php artisan test
+  laravel:
+    detect: [artisan, composer.json]
+    setup:
+      - composer install --no-interaction --no-progress --quiet
+      - php -r "file_exists('.env') || copy('.env.example', '.env');"
+      - php artisan key:generate --quiet
+      - php -r "is_dir('vendor/laravel/passport') && passthru('php artisan passport:keys --force --no-interaction --quiet');"
+    checks:
+      - php artisan test
+  flutter:
+    detect: [pubspec.yaml]
+    setup:
+      - flutter pub get
+    checks:
+      - flutter test
+  python:
+    detect: [pyproject.toml]
+    setup:
+      - uv sync
+    checks:
+      - uv run pytest
+
 # Um modelo por papel. provider: claude_code (CLI local, usa sua assinatura)
 # | anthropic_api | openai_api (stubs até a Fase 2/4).
 roles:

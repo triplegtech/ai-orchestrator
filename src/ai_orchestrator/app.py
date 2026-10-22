@@ -40,7 +40,7 @@ def _execute(deps, task_id: str, graph_input: dict | None) -> None:
 @app.command()
 def run(
     task: str = typer.Argument(..., help="O que deve ser feito, em linguagem natural."),
-    repo: Path = typer.Option(..., "--repo", "-r", help="Repositório Git alvo."),
+    repo: Path | None = typer.Option(None, "--repo", "-r", help="Repositório Git alvo (padrão: pasta atual)."),
     base: str = typer.Option("HEAD", "--base", "-b", help="Ref base do worktree."),
     check: list[str] | None = typer.Option(None, "--check", "-c", help="Comando de validação (repetível). Sobrepõe o planner."),
     allow_path: list[str] | None = typer.Option(None, "--allow-path", "-a", help="Glob autorizado (repetível). Sobrepõe o planner."),
@@ -48,7 +48,7 @@ def run(
 ) -> None:
     """Executa uma tarefa de ponta a ponta até cumprir os critérios ou atingir um limite."""
     deps = default_deps(config)
-    request = TaskRequest(task=task, repo_path=str(repo.resolve()), base_ref=base,
+    request = TaskRequest(task=task, repo_path=str((repo or Path.cwd()).resolve()), base_ref=base,
                           checks=check or [], allowed_paths=allow_path or [])
     task_id = new_task_id()
     typer.echo(f"{task_id} · workspaces em {deps.settings.workspaces_root}")

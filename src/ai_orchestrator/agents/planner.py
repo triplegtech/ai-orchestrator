@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from ai_orchestrator.deps import Deps
 
 
-def build_prompt(task_id: str, request: TaskRequest, discovery: dict) -> str:
+def build_prompt(task_id: str, request: TaskRequest, discovery: dict, environment: str = "") -> str:
     user_scope = (
         f"O usuário restringiu o escopo a:\n{bullet_list(request.allowed_paths)}\nUse exatamente esses caminhos em allowed_paths."
         if request.allowed_paths
@@ -37,16 +37,36 @@ def build_prompt(task_id: str, request: TaskRequest, discovery: dict) -> str:
 
 ## Validação
 {user_checks}
-
+{environment}
 Inspecione o repositório no diretório atual antes de planejar. Responda somente com o plano estruturado.
 """
 
 
-def run(deps: Deps, task_id: str, request: TaskRequest, discovery: dict, cwd: str, scratch_dir: str) -> AgentResponse:
+def environment_note(setup: list[str], default_checks: list[str]) -> str:
+    if not setup and not default_checks:
+        return ""
+    return f"""
+## Ambiente do workspace
+Já preparado pelo orquestrador com (não repita em validation_commands):
+{bullet_list(setup)}
+Validação padrão da stack, usada se você não propuser nada mais focado:
+{bullet_list(default_checks)}
+"""
+
+
+def run(
+    deps: Deps,
+    task_id: str,
+    request: TaskRequest,
+    discovery: dict,
+    cwd: str,
+    scratch_dir: str,
+    environment: str = "",
+) -> AgentResponse:
     return call_role(
         deps,
         "planner",
-        prompt=build_prompt(task_id, request, discovery),
+        prompt=build_prompt(task_id, request, discovery, environment),
         cwd=cwd,
         scratch_dir=scratch_dir,
         output_model=Plan,

@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 ai-orchestrator = "ai_orchestrator:main"
+aio = "ai_orchestrator:main"
 
 [build-system]
 requires = ["uv_build>=0.12.17,<0.13.0"]

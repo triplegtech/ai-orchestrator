@@ -32,11 +32,25 @@ class Budgets(BaseModel):
     validation_timeout_seconds: int = 900
 
 
+class StackPreset(BaseModel):
+    detect: list[str]  # all of these must exist at the repo root
+    setup: list[str] = Field(default_factory=list)
+    checks: list[str] = Field(default_factory=list)
+
+
 class Settings(BaseModel):
     workspaces_root: Path
     commit_on_success: bool = True
     budgets: Budgets = Field(default_factory=Budgets)
     roles: dict[str, RoleConfig]
+    # Ordered: the first preset whose files all exist wins.
+    stack_presets: dict[str, StackPreset] = Field(default_factory=dict)
+
+    def detect_stack(self, root_files: set[str]) -> str | None:
+        for name, preset in self.stack_presets.items():
+            if all(f in root_files for f in preset.detect):
+                return name
+        return None
 
 
 class ToolProfile(BaseModel):

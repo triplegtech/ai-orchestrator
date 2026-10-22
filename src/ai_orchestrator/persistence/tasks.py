@@ -24,6 +24,12 @@ def _md_report(s: dict[str, Any]) -> str:
     ]
     if status == "blocked":
         lines.append(f"**Motivo do bloqueio:** {s.get('blocked_reason', '')}")
+    if s.get("setup"):
+        lines += ["", f"## Preparação do ambiente (stack: {(s.get('discovery') or {}).get('stack')})"]
+        for c in s["setup"]:
+            lines.append(f"- `{c['command']}` → exit {c['exit_code']}{' (timeout)' if c.get('timed_out') else ''}")
+            if c["exit_code"] != 0:
+                lines += ["", "```", c.get("output_tail", "")[-2000:], "```"]
     if plan:
         lines += ["", "## Plano", plan.get("summary", ""), "", "### Critérios de aceite"]
         lines += [f"- {c}" for c in plan.get("acceptance_criteria", [])]
