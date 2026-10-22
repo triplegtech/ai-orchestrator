@@ -1,0 +1,42 @@
+# Configuração do orquestrador. Sobrescreva com --config <arquivo> ou AI_ORCH_CONFIG.
+
+# Worktrees, relatórios e checkpoints ficam aqui. Fora do OneDrive de propósito:
+# sincronizar worktrees e o SQLite de checkpoints gera conflitos e lentidão.
+workspaces_root: ${LOCALAPPDATA}/ai-orchestrator/workspaces
+
+# Commit local (nunca push) no branch da tarefa quando ela termina como "done".
+commit_on_success: true
+
+budgets:
+  max_attempts: 3              # ciclos implementação -> validação -> revisão
+  max_cost_usd: 10.0           # soma de todas as chamadas de agentes da tarefa
+  agent_timeout_seconds: 1800  # por chamada de agente
+  validation_timeout_seconds: 900  # por comando de validação
+
+# Um modelo por papel. provider: claude_code (CLI local, usa sua assinatura)
+# | anthropic_api | openai_api (stubs até a Fase 2/4).
+roles:
+  planner:
+    provider: claude_code
+    model: opus
+    effort: high
+    tool_profile: read_only
+    prompt: planner.md
+    max_budget_usd: 2.0
+  implementer:
+    provider: claude_code
+    model: sonnet
+    effort: medium
+    tool_profile: implement
+    prompt: implementer.md
+    max_budget_usd: 4.0
+    # Roteamento: a partir desta tentativa, troca para um modelo mais forte.
+    escalate_after_attempt: 2
+    escalation_model: opus
+  reviewer:
+    provider: claude_code
+    model: opus
+    effort: high
+    tool_profile: review
+    prompt: reviewer.md
+    max_budget_usd: 2.0

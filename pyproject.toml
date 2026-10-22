@@ -1,0 +1,29 @@
+[project]
+name = "ai-orchestrator"
+version = "0.1.0"
+description = "Equipe autônoma de agentes de engenharia: LangGraph orquestra, Claude Code implementa."
+readme = "README.md"
+authors = [
+    { name = "GABRIEL GUARNIERI GOMES", email = "gabrielguarnierigomes@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "langgraph>=1.2.16",
+    "langgraph-checkpoint-sqlite>=3.1.2",
+    "pydantic>=2.14.1",
+    "pyyaml>=6.0.3",
+    "typer>=0.27.3",
+]
+
+[project.scripts]
+ai-orchestrator = "ai_orchestrator:main"
+
+[build-system]
+requires = ["uv_build>=0.12.17,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "langgraph-cli[inmem]>=0.4.37",
+    "pytest>=9.1.1",
+]

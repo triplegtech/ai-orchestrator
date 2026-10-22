@@ -1,0 +1,118 @@
+# Políticas aplicadas pelo executor, não pelos agentes.
+# O agente propõe; o gateway (runner + validação + permissões do Claude Code) decide.
+
+# Arquivos que nenhuma alteração pode tocar. Uma violação reprova a validação.
+denied_paths:
+  - ".env"
+  - ".env.*"
+  - "**/.env"
+  - "**/.env.*"
+  - "**/*.pem"
+  - "**/*.key"
+  - "**/id_rsa*"
+  - "**/id_ed25519*"
+  - ".git/**"
+  - ".claude/**"
+  - ".github/workflows/**"
+
+# Artefatos gerados por build/testes (inclusive pelos comandos de validação do próprio
+# orquestrador). Não contam como alteração, não violam escopo e nunca são commitados.
+ignored_paths:
+  - "**/__pycache__/**"
+  - "**/*.pyc"
+  - "**/.pytest_cache/**"
+  - "**/.mypy_cache/**"
+  - "**/.ruff_cache/**"
+  - "**/.phpunit.result.cache"
+  - "**/.phpunit.cache/**"
+  - "**/coverage/**"
+  - "**/.dart_tool/**"
+  - "**/.gradle/**"
+  - "**/node_modules/**"
+
+# Comandos de validação propostos pelo planner que casam com estes padrões
+# (regex, sem diferenciar maiúsculas) são descartados antes de executar.
+denied_command_patterns:
+  - '\bgit\s+(push|merge|rebase|reset|checkout|switch|branch\s+-[dD]|worktree|update-ref|remote)\b'
+  - '\brm\s+-[a-z]*r'
+  - '\b(del|rmdir|rd)\s+/s'
+  - '\bRemove-Item\b'
+  - '\b(curl|wget|Invoke-WebRequest|iwr|Invoke-RestMethod|irm)\b'
+  - '\b(ssh|scp)\b'
+  - '\b(deploy|publish)\b'
+  - '\bdocker\s+(push|login)\b'
+  - '\bshutdown\b'
+  - '\bformat\s+[a-z]:'
+
+# Regras de permissão do Claude Code aplicadas a TODOS os papéis (deny vence allow).
+claude_deny:
+  - "Read(./.env)"
+  - "Read(./.env.*)"
+  - "Read(**/.env)"
+  - "Read(**/.env.*)"
+  - "Read(**/*.pem)"
+  - "Read(**/*.key)"
+  - "Read(~/.ssh/**)"
+  - "Read(~/.aws/**)"
+  - "Edit(./.env)"
+  - "Edit(**/.env*)"
+  - "Edit(./.git/**)"
+  - "Edit(./.claude/**)"
+  - "WebFetch"
+  - "WebSearch"
+  - "Bash(git push *)"
+  - "Bash(git merge *)"
+  - "Bash(git rebase *)"
+  - "Bash(git reset *)"
+  - "Bash(git checkout *)"
+  - "Bash(git switch *)"
+  - "Bash(git branch -D *)"
+  - "Bash(git worktree *)"
+  - "Bash(git remote *)"
+  - "Bash(git update-ref *)"
+  - "Bash(rm -rf *)"
+  - "Bash(curl *)"
+  - "Bash(wget *)"
+  - "Bash(ssh *)"
+  - "Bash(scp *)"
+  - "Bash(docker push *)"
+  - "Bash(npm publish *)"
+  - "PowerShell(Remove-Item *)"
+  - "PowerShell(Invoke-WebRequest *)"
+  - "PowerShell(Invoke-RestMethod *)"
+  - "PowerShell(git push *)"
+  - "PowerShell(git reset *)"
+
+# Perfis de ferramentas por papel. permission_mode + --permission-prompts none
+# fazem qualquer ação fora do permitido ser negada automaticamente.
+tool_profiles:
+  read_only:
+    tools: [Read, Glob, Grep]
+    permission_mode: dontAsk
+    allow: [Read, Glob, Grep]
+  review:
+    tools: [Read, Glob, Grep, Bash]
+    permission_mode: dontAsk
+    allow:
+      - Read
+      - Glob
+      - Grep
+      - "Bash(git diff)"
+      - "Bash(git diff *)"
+      - "Bash(git log)"
+      - "Bash(git log *)"
+      - "Bash(git show *)"
+      - "Bash(git status)"
+      - "Bash(git status *)"
+  implement:
+    tools: [Read, Edit, Write, Glob, Grep, Bash, PowerShell]
+    # Edit/Write ficam fora do allow de propósito: acceptEdits só os aprova dentro do worktree.
+    permission_mode: acceptEdits
+    allow: [Read, Glob, Grep, Bash, PowerShell]
+  # Alternativa mais segura sem container: sem shell, as ferramentas de arquivo ficam confinadas
+  # ao worktree (--restricted). O implementer corrige a partir do feedback real da validação.
+  # Para usar: roles.implementer.tool_profile: implement_no_shell
+  implement_no_shell:
+    tools: [Read, Edit, Write, Glob, Grep]
+    permission_mode: acceptEdits
+    allow: [Read, Glob, Grep]
