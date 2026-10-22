@@ -15,7 +15,9 @@ Arquitetura, decisões e roadmap: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ## Instalação (uma vez)
 
 ```powershell
-uv tool install --editable C:\Users\gabri\OneDrive\Documentos\tripleg\ai-orchestrator
+git clone <url-deste-repo> ai-orchestrator
+cd ai-orchestrator
+uv tool install --editable .
 ```
 
 Coloca `aio` (e `ai-orchestrator`) no PATH. Editável: mudanças no código, config e prompts deste
