@@ -15,13 +15,20 @@ Arquitetura, decisões e roadmap: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ## Instalação (uma vez)
 
 ```powershell
-git clone <url-deste-repo> ai-orchestrator
+git clone https://github.com/triplegtech/ai-orchestrator.git
 cd ai-orchestrator
 uv tool install --editable .
+
+# Skill /aio para o Claude Code (opcional)
+New-Item -ItemType Directory -Force $HOME\.claude\skills | Out-Null
+Copy-Item -Recurse -Force skills\aio $HOME\.claude\skills\
 ```
 
 Coloca `aio` (e `ai-orchestrator`) no PATH. Editável: mudanças no código, config e prompts deste
 repositório valem na hora. Depois de alterar dependências: `uv tool install --editable --reinstall .`.
+
+A skill fica versionada em `skills/aio/`; depois de atualizar o repositório, repita o `Copy-Item`
+para pegar a versão nova. No macOS/Linux: `mkdir -p ~/.claude/skills && cp -r skills/aio ~/.claude/skills/`.
 
 ## Uso
 
@@ -34,7 +41,7 @@ aio resume TASK-20261022-111253-64c0
 ```
 
 No Claude Code, em qualquer projeto: `/aio Adicione paginação ao endpoint de usuários`
-(skill de usuário em `~/.claude/skills/aio/`; roda em segundo plano e resume o relatório).
+(skill de usuário instalada a partir de `skills/aio/`; roda em segundo plano e resume o relatório).
 
 A stack é detectada pela raiz do repositório (`stack_presets` em `config/orchestrator.yaml`) e o
 workspace é preparado antes de qualquer agente rodar — Laravel+Vite: `composer install`, `.env`,
